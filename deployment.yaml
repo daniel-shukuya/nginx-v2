@@ -1,0 +1,211 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: nginx-config
+data:
+  nginx.conf: |
+    # For more information on configuration, see:
+    #   * Official English Documentation: http://nginx.org/en/docs/
+    #   * Official Russian Documentation: http://nginx.org/ru/docs/
+
+    #load_module modules/ngx_http_image_filter_module.so;
+    worker_processes auto;
+    error_log /var/log/nginx/error.log;
+    pid /run/nginx.pid;
+
+    # Load dynamic modules. See /usr/share/doc/nginx/README.dynamic.
+    include /usr/share/nginx/modules/*.conf;
+
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+        # perl_modules /opt/app-root/etc/perl;
+        # perl_require Version.pm;
+        # perl_set $perl_version Version::installed;
+
+        log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                            '$status $body_bytes_sent "$http_referer" '
+                            '"$http_user_agent" "$http_x_forwarded_for"';
+
+
+        sendfile            on;
+        tcp_nopush          on;
+        tcp_nodelay         on;
+        keepalive_timeout   65;
+        types_hash_max_size 2048;
+
+        include             /etc/nginx/mime.types;
+        default_type        application/octet-stream;
+
+        # Load modular configuration files from the /etc/nginx/conf.d directory.
+        # See http://nginx.org/en/docs/ngx_core_module.html#include
+        # for more information.
+        include /opt/app-root/etc/nginx.d/*.conf;
+
+        # si nadie busca la imagen por 5d, se borra
+        # se alguien busca la imagen cacheada, vuelven a correr los 5d de nuevo
+        proxy_cache_path /tmp/nginx/cache/amzn levels=1:2 keys_zone=amzn:100M inactive=30d max_size=10g;
+        #proxy_cache_path /tmp/nginx/cache/pmnt levels=1:2 keys_zone=pmnt:1m max_size=10g inactive=5d use_temp_path=off;    
+
+        # front facing virtual host for caching
+        server {
+            listen 8080;
+            server_name resize.primer-test.apps-crc.testing;
+
+            #root         /opt/app-root/src;
+
+            # Load configuration files for the default server block.
+            #include /opt/app-root/etc/nginx.default.d/*.conf;
+
+            #proxy_pass https://s3-ceph.apps.k8s.cablevision-labs.com.ar/flow-sustentable-bucket/amzn/$3;
+
+            location /resize {
+                proxy_pass http://localhost:10199;
+                proxy_cache amzn;
+                proxy_cache_key "$host$document_uri$is_args$arg_key";
+                proxy_cache_lock on;
+                proxy_cache_valid 7d;  # Cache valid thumbnails for 30 days.
+                proxy_cache_valid any 15s;  # Everything else gets 15s.
+                proxy_cache_use_stale error timeout invalid_header updating;
+                proxy_http_version 1.1;
+                expires 7d;
+                add_header X-Cache-Status $upstream_cache_status;
+            }
+        }
+
+        server {
+            listen 10199;
+            server_name localhost;
+
+            set $backend 's3-ceph.apps.k8s.cablevision-labs.com.ar';
+
+            resolver 8.8.8.8;  # Use Google for DNS.
+            resolver_timeout 5s;
+
+            proxy_buffering off;
+            proxy_http_version 1.1;
+            proxy_pass_request_body off;  # Not needed by AWS.
+            proxy_pass_request_headers off;
+
+            # Clean up the headers going to and from S3.
+            proxy_hide_header "x-amz-id-2";
+            proxy_hide_header "x-amz-request-id";
+            proxy_hide_header "x-amz-storage-class";
+            proxy_hide_header "Set-Cookie";
+            proxy_ignore_headers "Set-Cookie";
+            proxy_set_header Host $backend;
+            proxy_method GET;
+
+            # image filter
+            image_filter_jpeg_quality 85;  # Adjust to your preferences.
+            image_filter_buffer 12M;
+            image_filter_interlace on;
+
+            location ~ ^/resize/(?<width>\d+)/(?<height>\d+)/(?<name>.*)$ {
+                error_page 415 =404 /empty.gif;
+                image_filter resize $width $height;
+                proxy_pass https://$backend/flow-sustentable-bucket/amzn/$name;
+            }
+        }
+
+        # Settings for a TLS enabled server.
+        #
+        #    server {
+        #        listen       443 ssl http2 default_server;
+        #        listen       [::]:443 ssl http2 default_server;
+        #        server_name  _;
+        #        root         /opt/app-root/src;
+        #
+        #        ssl_certificate "/etc/pki/nginx/server.crt";
+        #        ssl_certificate_key "/etc/pki/nginx/private/server.key";
+        #        ssl_session_cache shared:SSL:1m;
+        #        ssl_session_timeout  10m;
+        #        ssl_ciphers PROFILE=SYSTEM;
+        #        ssl_prefer_server_ciphers on;
+        #
+        #        # Load configuration files for the default server block.
+        #        include /opt/app-root/etc/nginx.default.d/*.conf;
+        #
+        #        location / {
+        #        }
+        #
+        #        error_page 404 /404.html;
+        #            location = /40x.html {
+        #        }
+        #
+        #        error_page 500 502 503 504 /50x.html;
+        #            location = /50x.html {
+        #        }
+        #    }
+
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-img-resize
+spec:
+  selector:
+    app: web-img-resize
+  ports:
+    - port: 8080
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-img-resize
+  labels:
+    app: web-img-resize
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web-img-resize
+  template:
+    metadata:
+      labels:
+        app: web-img-resize
+    spec:
+      containers:
+        - name: web-img-resize
+          image: danieldocke/nginx-v2:2.0
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              memory: 1Gi
+          ports:
+            - containerPort: 8080
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: nginx-cors
+              mountPath: /etc/nginx/cors.conf
+              subPath: cors.conf
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: nginx-cors
+          configMap:
+            name: nginx-cors
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: web-img-resize
+spec:
+  host: resize.primer-test.apps-crc.testing
+  #host: lala.192.168.130.11.nip.io
+  to:
+    kind: Service
+    name: web-img-resize
+    weight: 100
+  port:
+    targetPort: 8080
+  wildcardPolicy: None
