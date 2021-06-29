@@ -57,16 +57,34 @@ data:
             #root         /opt/app-root/src;
 
             # Load configuration files for the default server block.
+            # si quiero habilitar un index custom, descomentar linea de abajo
             #include /opt/app-root/etc/nginx.default.d/*.conf;
 
             #proxy_pass https://s3-ceph.apps.k8s.cablevision-labs.com.ar/flow-sustentable-bucket/amzn/$3;
-
-            location /resize {
+            
+            location /img {
                 proxy_pass http://localhost:10199;
                 proxy_cache amzn;
                 proxy_cache_key "$host$document_uri$is_args$arg_key";
                 proxy_cache_lock on;
-                proxy_cache_valid 7d;  # Cache valid thumbnails for 30 days.
+                proxy_cache_valid 7d;  # Cache valid thumbnails for 7 days.
+                proxy_cache_valid any 15s;  # Everything else gets 15s.
+                proxy_cache_use_stale error timeout invalid_header updating;
+                proxy_http_version 1.1;
+                expires 7d;
+                add_header X-Cache-Status $upstream_cache_status;
+            }
+
+            location /img/default/ {
+                # set $backend 's3-ceph.apps.k8s.cablevision-labs.com.ar';
+                # si utilizamos variable $backend en el proxy pass, 
+                # se necesita un resolver como en el server:10199
+                # para no usar un resolver va toda la URL completa
+                proxy_pass https://s3-ceph.apps.k8s.cablevision-labs.com.ar/flow-sustentable-bucket/amzn/;
+                proxy_cache amzn;
+                proxy_cache_key "$host$document_uri$is_args$arg_key";
+                proxy_cache_lock on;
+                proxy_cache_valid 7d;  # Cache valid thumbnails for 7 days.
                 proxy_cache_valid any 15s;  # Everything else gets 15s.
                 proxy_cache_use_stale error timeout invalid_header updating;
                 proxy_http_version 1.1;
@@ -103,7 +121,7 @@ data:
             image_filter_buffer 12M;
             image_filter_interlace on;
 
-            location ~ ^/resize/(?<width>\d+)/(?<height>\d+)/(?<name>.*)$ {
+            location ~ ^/img/(?<width>\d+)/(?<height>\d+)/(?<name>.*)$ {
                 error_page 415 =404 /empty.gif;
                 image_filter resize $width $height;
                 proxy_pass https://$backend/flow-sustentable-bucket/amzn/$name;

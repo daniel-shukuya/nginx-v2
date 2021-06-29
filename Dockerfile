@@ -11,7 +11,7 @@ USER 1001
 
 # Add application sources
 # nginx.conf es copiado via configMap
-# ADD nginx/nginx.conf "${NGINX_CONF_PATH}"
+ADD nginx/nginx.conf "${NGINX_CONF_PATH}"
 ADD nginx/nginx-default-cfg/*.conf "${NGINX_DEFAULT_CONF_PATH}"
 ADD nginx/nginx-cfg/*.conf "${NGINX_CONFIGURATION_PATH}"
 # ADD nginx/index.html .
