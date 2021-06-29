@@ -59,8 +59,6 @@ data:
             # Load configuration files for the default server block.
             # si quiero habilitar un index custom, descomentar linea de abajo
             #include /opt/app-root/etc/nginx.default.d/*.conf;
-
-            #proxy_pass https://s3-ceph.apps.k8s.cablevision-labs.com.ar/flow-sustentable-bucket/amzn/$3;
             
             location /img {
                 proxy_pass http://localhost:10199;
