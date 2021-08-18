@@ -51,16 +51,20 @@ data:
 
         # front facing virtual host for caching
         server {
-            listen 8080;
-            server_name resize.primer-test.apps-crc.testing;
+          listen 8080;
+          server_name resize.primer-test.apps-crc.testing;
 
-            #root         /opt/app-root/src;
+          #root         /opt/app-root/src;
 
-            # Load configuration files for the default server block.
-            # si quiero habilitar un index custom, descomentar linea de abajo
-            #include /opt/app-root/etc/nginx.default.d/*.conf;
-            
-            location /img {
+          # Load configuration files for the default server block.
+          # si quiero habilitar un index custom, descomentar linea de abajo
+          #include /opt/app-root/etc/nginx.default.d/*.conf;
+          
+          location /webposter {
+            alias   /usr/share/nginx/html;
+            #index index.html;
+
+            location /webposter/img {
                 proxy_pass http://localhost:10199;
                 proxy_cache amzn;
                 proxy_cache_key "$host$document_uri$is_args$arg_key";
@@ -73,7 +77,7 @@ data:
                 add_header X-Cache-Status $upstream_cache_status;
             }
 
-            location /img/default/ {
+            location /webposter/img/default/ {
                 # set $backend 's3-ceph.apps.k8s.cablevision-labs.com.ar';
                 # si utilizamos variable $backend en el proxy pass, 
                 # se necesita un resolver como en el server:10199
@@ -89,6 +93,16 @@ data:
                 expires 7d;
                 add_header X-Cache-Status $upstream_cache_status;
             }
+
+            location /webposter/health {
+              access_log off;
+              # html response:
+              # add_header Content-Type text/plain;
+              # txt response:
+              default_type text/html;
+              return 200 "healthy\n";
+            }
+          }
         }
 
         server {
@@ -218,6 +232,7 @@ metadata:
 spec:
   host: resize.primer-test.apps-crc.testing
   #host: lala.192.168.130.11.nip.io
+  path: /webposter
   to:
     kind: Service
     name: web-img-resize
