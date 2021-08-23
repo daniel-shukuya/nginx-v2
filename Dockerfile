@@ -14,7 +14,7 @@ USER 1001
 ADD nginx/nginx.conf "${NGINX_CONF_PATH}"
 ADD nginx/nginx-default-cfg/*.conf "${NGINX_DEFAULT_CONF_PATH}"
 ADD nginx/nginx-cfg/*.conf "${NGINX_CONFIGURATION_PATH}"
-# ADD nginx/index.html .
+# ADD nginx/index.html /usr/share/nginx/html/webposter/index.html
 # ADD nginx/favicon.ico .
 
 RUN mkdir -p /tmp/nginx/cache/amzn

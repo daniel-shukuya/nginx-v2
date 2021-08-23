@@ -42,7 +42,7 @@ data:
         # Load modular configuration files from the /etc/nginx/conf.d directory.
         # See http://nginx.org/en/docs/ngx_core_module.html#include
         # for more information.
-        include /opt/app-root/etc/nginx.d/*.conf;
+        # include /opt/app-root/etc/nginx.d/*.conf;
 
         # si nadie busca la imagen por 5d, se borra
         # se alguien busca la imagen cacheada, vuelven a correr los 5d de nuevo
@@ -52,19 +52,16 @@ data:
         # front facing virtual host for caching
         server {
           listen 8080;
-          server_name resize.primer-test.apps-crc.testing;
+          # server_name webposter.primer-test.apps-crc.testing;
+          server_name _;
 
           #root         /opt/app-root/src;
 
           # Load configuration files for the default server block.
           # si quiero habilitar un index custom, descomentar linea de abajo
           #include /opt/app-root/etc/nginx.default.d/*.conf;
-          
-          location /webposter {
-            alias   /usr/share/nginx/html;
-            #index index.html;
 
-            location /webposter/img {
+          location /img {
                 proxy_pass http://localhost:10199;
                 proxy_cache amzn;
                 proxy_cache_key "$host$document_uri$is_args$arg_key";
@@ -75,33 +72,32 @@ data:
                 proxy_http_version 1.1;
                 expires 7d;
                 add_header X-Cache-Status $upstream_cache_status;
-            }
+          }
 
-            location /webposter/img/default/ {
-                # set $backend 's3-ceph.apps.k8s.cablevision-labs.com.ar';
-                # si utilizamos variable $backend en el proxy pass, 
-                # se necesita un resolver como en el server:10199
-                # para no usar un resolver va toda la URL completa
-                proxy_pass https://s3-ceph.apps.k8s.cablevision-labs.com.ar/flow-sustentable-bucket/amzn/;
-                proxy_cache amzn;
-                proxy_cache_key "$host$document_uri$is_args$arg_key";
-                proxy_cache_lock on;
-                proxy_cache_valid 7d;  # Cache valid thumbnails for 7 days.
-                proxy_cache_valid any 15s;  # Everything else gets 15s.
-                proxy_cache_use_stale error timeout invalid_header updating;
-                proxy_http_version 1.1;
-                expires 7d;
-                add_header X-Cache-Status $upstream_cache_status;
-            }
+          location /img/default/ {
+              # set $backend 's3-ceph.apps.k8s.cablevision-labs.com.ar';
+              # si utilizamos variable $backend en el proxy pass, 
+              # se necesita un resolver como en el server:10199
+              # para no usar un resolver va toda la URL completa
+              proxy_pass https://s3-ceph.apps.k8s.cablevision-labs.com.ar/flow-sustentable-bucket/amzn/;
+              proxy_cache amzn;
+              proxy_cache_key "$host$document_uri$is_args$arg_key";
+              proxy_cache_lock on;
+              proxy_cache_valid 7d;  # Cache valid thumbnails for 7 days.
+              proxy_cache_valid any 15s;  # Everything else gets 15s.
+              proxy_cache_use_stale error timeout invalid_header updating;
+              proxy_http_version 1.1;
+              expires 7d;
+              add_header X-Cache-Status $upstream_cache_status;
+          }
 
-            location /webposter/health {
-              access_log off;
-              # html response:
-              # add_header Content-Type text/plain;
-              # txt response:
-              default_type text/html;
-              return 200 "healthy\n";
-            }
+          location /health {
+            # access_log off;
+            # html response:
+            # add_header Content-Type text/plain;
+            # txt response:
+            default_type text/html;
+            return 200 "healthy\n";
           }
         }
 
@@ -182,6 +178,8 @@ spec:
   ports:
     - port: 8080
       protocol: TCP
+      targetPort: 8080
+      name: http
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -201,7 +199,7 @@ spec:
     spec:
       containers:
         - name: web-img-resize
-          image: danieldocke/nginx-v2:2.0
+          image: danieldocke/nginx-v2:3.0
           resources:
             limits:
               memory: 1Gi
@@ -230,13 +228,13 @@ kind: Route
 metadata:
   name: web-img-resize
 spec:
-  host: resize.primer-test.apps-crc.testing
+  host: sustentable.primer-test.apps-crc.testing
   #host: lala.192.168.130.11.nip.io
-  path: /webposter
+  #path: /webposter
+  port:
+    targetPort: 8080
   to:
     kind: Service
     name: web-img-resize
     weight: 100
-  port:
-    targetPort: 8080
   wildcardPolicy: None
